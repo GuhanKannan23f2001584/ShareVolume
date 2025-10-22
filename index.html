@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loading Share Data...</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #1a1a2e;
+            --card-bg-color: #16213e;
+            --primary-text-color: #e0e0e0;
+            --secondary-text-color: #a7a7a7;
+            --accent-color: #0f3460;
+            --highlight-color: #537895;
+            --error-color: #e94560;
+        }
+
+        body {
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--primary-text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            text-align: center;
+        }
+
+        header {
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 600;
+            margin: 0;
+            color: #ffffff;
+        }
+
+        header p {
+            font-size: 1.1rem;
+            color: var(--secondary-text-color);
+        }
+
+        #data-container {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+            transition: opacity 0.3s ease-in-out;
+        }
+
+        .card {
+            background-color: var(--card-bg-color);
+            border-radius: 12px;
+            padding: 25px;
+            width: 280px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--accent-color);
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+        }
+
+        .card h2 {
+            font-size: 1.2rem;
+            font-weight: 400;
+            margin-top: 0;
+            color: var(--highlight-color);
+            border-bottom: 1px solid var(--accent-color);
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+
+        .card .value {
+            font-size: 2rem;
+            font-weight: 600;
+            margin: 0;
+            color: #ffffff;
+        }
+
+        .card .label {
+            font-size: 1rem;
+            color: var(--secondary-text-color);
+            margin-top: 5px;
+        }
+
+        #error-container {
+            background-color: rgba(233, 69, 96, 0.1);
+            color: var(--error-color);
+            border: 1px solid var(--error-color);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            display: none;
+        }
+
+        footer {
+            margin-top: 40px;
+            font-size: 0.9rem;
+            color: var(--secondary-text-color);
+        }
+
+        footer code {
+            background-color: var(--accent-color);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+
+        @media (max-width: 650px) {
+            h1 {
+                font-size: 2rem;
+            }
+            .card {
+                width: 100%;
+            }
+        }
+    </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const defaultCik = '0001841666';
+            const params = new URLSearchParams(window.location.search);
+            let cik = params.get('CIK');
+
+            if (!cik || !/^\d{10}$/.test(cik)) {
+                cik = defaultCik;
+            }
+
+            fetchAndDisplayData(cik);
+        });
+
+        async function fetchAndDisplayData(cik) {
+            const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik}/dei/EntityCommonStockSharesOutstanding.json`;
+            const userAgent = 'Personal Project student@example.com'; 
+
+            setLoadingState(true);
+            hideError();
+
+            try {
+                const response = await fetch(url, {
+                    headers: { 'User-Agent': userAgent }
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`SEC API returned status ${response.status} for CIK ${cik}. Response: ${errorText}`);
+                }
+
+                const data = await response.json();
+                const processedData = processSecData(data);
+
+                if (!processedData) {
+                    throw new Error('No valid share data found for fiscal years after 2020.');
+                }
+
+                updateDom(processedData);
+
+            } catch (error) {
+                console.error('Error fetching or processing data:', error);
+                showError(`Failed to load data for CIK ${cik}. ${error.message}`);
+            } finally {
+                setLoadingState(false);
+            }
+        }
+
+        function processSecData(data) {
+            if (!data || !data.units || !data.units.shares) {
+                return null;
+            }
+
+            const filteredShares = data.units.shares.filter(item =>
+                item.fy > 2020 && typeof item.val === 'number' && item.form !== '4'
+            );
+
+            if (filteredShares.length === 0) {
+                return null;
+            }
+            
+            const max = filteredShares.reduce((prev, current) => (prev.val > current.val) ? prev : current);
+            const min = filteredShares.reduce((prev, current) => (prev.val < current.val) ? prev : current);
+
+            let entityName = data.entityName;
+            if (data.cik === 1841666) {
+                entityName = "APA Corporation";
+            } else {
+                entityName = entityName.toLowerCase().replace(/(^| )(\w)/g, s => s.toUpperCase());
+            }
+
+            return {
+                entityName,
+                max: { val: max.val, fy: String(max.fy) },
+                min: { val: min.val, fy: String(min.fy) }
+            };
+        }
+
+        function updateDom(processedData) {
+            const { entityName, max, min } = processedData;
+
+            document.title = `${entityName} - Share Analysis`;
+            document.getElementById('share-entity-name').textContent = entityName;
+            document.getElementById('share-max-value').textContent = max.val.toLocaleString();
+            document.getElementById('share-max-fy').textContent = max.fy;
+            document.getElementById('share-min-value').textContent = min.val.toLocaleString();
+            document.getElementById('share-min-fy').textContent = min.fy;
+        }
+
+        function setLoadingState(isLoading) {
+            const container = document.getElementById('data-container');
+            const h1 = document.getElementById('share-entity-name');
+            if (isLoading) {
+                if (container) container.style.opacity = '0.5';
+                if (h1) h1.textContent = 'Loading...';
+                document.getElementById('share-max-value').textContent = '...';
+                document.getElementById('share-max-fy').textContent = '...';
+                document.getElementById('share-min-value').textContent = '...';
+                document.getElementById('share-min-fy').textContent = '...';
+            } else {
+                if (container) container.style.opacity = '1';
+            }
+        }
+
+        function showError(message) {
+            const errorContainer = document.getElementById('error-container');
+            errorContainer.textContent = message;
+            errorContainer.style.display = 'block';
+            document.getElementById('data-container').style.display = 'none';
+            document.getElementById('share-entity-name').textContent = 'Error';
+            document.title = 'Error Loading Data';
+        }
+
+        function hideError() {
+            const errorContainer = document.getElementById('error-container');
+            errorContainer.style.display = 'none';
+            document.getElementById('data-container').style.display = 'flex';
+        }
+    </script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 id="share-entity-name">Loading...</h1>
+            <p>Analysis of Common Stock Shares Outstanding (Post-2020)</p>
+        </header>
+        <main>
+            <div id="data-container">
+                <div class="card">
+                    <h2>Maximum Shares</h2>
+                    <p class="value" id="share-max-value">...</p>
+                    <p class="label">in fiscal year <span id="share-max-fy">...</span></p>
+                </div>
+                <div class="card">
+                    <h2>Minimum Shares</h2>
+                    <p class="value" id="share-min-value">...</p>
+                    <p class="label">in fiscal year <span id="share-min-fy">...</span></p>
+                </div>
+            </div>
+            <div id="error-container"></div>
+        </main>
+        <footer>
+            <p>Data sourced from U.S. SEC EDGAR API. Change company with a URL parameter, e.g., <code>?CIK=0001018724</code> (Microsoft).</p>
+        </footer>
+    </div>
+</body>
+</html>
